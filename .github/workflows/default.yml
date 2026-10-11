@@ -29,6 +29,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Rust Tests
+        env:
+          DISCORD_APP_ID: ${{ secrets.DISCORD_APP_ID }}
         run: cargo test --locked
 
   release:
@@ -72,6 +74,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUSTTARGET: ${{ matrix.target }}
           UPLOAD_MODE: ${{ github.ref_type == 'tag' && 'release' || 'none' }}
+          DISCORD_APP_ID: ${{ secrets.DISCORD_APP_ID }}
         with:
           RUSTTARGET: ${{ matrix.target }}
           UPLOAD_MODE: ${{ github.ref_type == 'tag' && 'release' || 'none' }}
