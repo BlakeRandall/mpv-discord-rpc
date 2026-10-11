@@ -136,7 +136,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         let idle = get_property("idle-active")
             .ok()
             .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+            .unwrap_or(true);
+
+        let idle = idle
+            || media.is_none()
+            || position.is_none()
+            || paused.is_none();
 
         if idle {
             if let Err(error) = client.clear_activity() {
