@@ -5,7 +5,7 @@ RUSTUP := rustup
 
 # Rust compilation targets
 
-LINUX_TARGETS   := x86_64-unknown-linux-gnu
+LINUX_TARGETS   := x86_64-unknown-linux-musl
 WINDOWS_TARGETS := x86_64-pc-windows-gnu
 
 .PHONY: help build build-linux build-windows build-all install-targets install-linux install-windows clean
