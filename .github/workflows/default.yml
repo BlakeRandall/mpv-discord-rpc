@@ -1,0 +1,88 @@
+name: Default Workflow
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "*"
+    tags:
+      - "*"
+  pull_request:
+    branches:
+      - "*"
+
+permissions:
+  contents: write
+
+jobs:
+  checks:
+    name: Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Pre-Check
+        uses: pre-commit/action@v3.0.1
+
+      - name: Rust Setup
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Tests
+        run: cargo test --locked
+
+  release:
+    name: Create Release
+    if: github.ref_type == 'tag'
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          draft: false
+          prerelease: true
+
+  build:
+    name: Build (${{ matrix.target }})
+    needs:
+      - checks
+      - release
+    if: >-
+      always() &&
+      needs.checks.result == 'success' &&
+      (needs.release.result == 'success' || needs.release.result == 'skipped')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - x86_64-pc-windows-gnu
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build Rust Binary
+        id: build
+        uses: rust-build/rust-build.action@v1.4.5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUSTTARGET: ${{ matrix.target }}
+          UPLOAD_MODE: ${{ github.ref_type == 'tag' && 'release' || 'none' }}
+        with:
+          RUSTTARGET: ${{ matrix.target }}
+          UPLOAD_MODE: ${{ github.ref_type == 'tag' && 'release' || 'none' }}
+
+      - name: Upload CI Artifact
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}-${{ github.sha }}
+          path: |
+            ${{ steps.build.outputs.BUILT_ARCHIVE }}
+            ${{ steps.build.outputs.BUILT_CHECKSUM }}
+          if-no-files-found: error
+          retention-days: 7
