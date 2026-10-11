@@ -1,3 +1,4 @@
+use single_instance::SingleInstance;
 
 use interprocess::local_socket::{
     prelude::*,
@@ -22,6 +23,7 @@ use std::sync::{
 };
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 
 const DISCORD_APP_ID: &str = env!("DISCORD_APP_ID");
 const MPV_SOCKET: &str = "mpvsocket";
@@ -84,6 +86,13 @@ fn get_property(property: &str) -> Result<Value, Box<dyn Error>> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    let instance = SingleInstance::new("mpv-discord-rich-presence")?;
+
+    if !instance.is_single() {
+        println!("Rich Presence is already running. Exiting.");
+        return Ok(());
+    }
+
     // Load environment variables from .env if present.
     dotenvy::dotenv().ok();
 
