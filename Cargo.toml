@@ -1,0 +1,19 @@
+[package]
+name = "mpv-discord-rpc"
+version = "0.1.0"
+edition = "2024"
+build = "build.rs"
+
+[dependencies]
+ctrlc = "3.5.2"
+discord-rich-presence = "1.1.0"
+dotenvy = "0.15.7"
+interprocess = "2.4.5"
+serde_json = "1.0.154"
+
+[build-dependencies]
+dotenvy = "0.15"
+
+[[bin]]
+name = "mpv-discord-rpc"
+path = "main.rs"
