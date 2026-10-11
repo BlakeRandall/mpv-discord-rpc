@@ -1,3 +1,5 @@
+mod parent_watch;
+
 use single_instance::SingleInstance;
 
 use interprocess::local_socket::{
@@ -109,6 +111,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("\nCtrl+C received. Shutting down...");
         shutdown_flag.store(false, Ordering::SeqCst);
     })?;
+
+    parent_watch::exit_when_parent_exits(Arc::clone(&running));
 
     // Connect to Discord.
     let mut client = DiscordIpcClient::new(&app_id);
