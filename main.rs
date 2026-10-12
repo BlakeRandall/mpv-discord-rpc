@@ -152,7 +152,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 eprintln!("Failed to clear activity: {error}");
             }
 
-            thread::sleep(Duration::from_seconds(1));
+            thread::sleep(Duration::from_secs(1));
             continue;
         }
 
@@ -218,7 +218,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             eprintln!("Failed to update Discord activity: {error}");
         }
 
-        thread::sleep(Duration::from_seconds(1));
+        thread::sleep(Duration::from_secs(1));
     }
 
     println!("Cleaning up Discord Rich Presence...");
