@@ -115,9 +115,11 @@ jobs:
           cd dist
           sha256sum "${ARCHIVE}" > "${CHECKSUM}"
 
+          echo "target=${BINARY}${EXTENSION}" >> "$GITHUB_OUTPUT"
           echo "archive=${ARCHIVE}" >> "$GITHUB_OUTPUT"
           echo "checksum=${CHECKSUM}" >> "$GITHUB_OUTPUT"
 
+          echo "target_path=dist/${BINARY}${EXTENSION}" >> "$GITHUB_OUTPUT"
           echo "archive_path=dist/${ARCHIVE}" >> "$GITHUB_OUTPUT"
           echo "checksum_path=dist/${CHECKSUM}" >> "$GITHUB_OUTPUT"
 
@@ -126,9 +128,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           archive: false
+          name: ${{ steps.package.outputs.target }}
           path: |
-            ${{ steps.package.outputs.archive_path }}
-            ${{ steps.package.outputs.checksum_path }}
+            ${{ steps.package.outputs.target_path }}
           if-no-files-found: error
           retention-days: 7
 
