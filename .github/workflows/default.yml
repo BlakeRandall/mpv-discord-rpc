@@ -115,8 +115,11 @@ jobs:
           cd dist
           sha256sum "${ARCHIVE}" > "${CHECKSUM}"
 
-          echo "archive=dist/${ARCHIVE}" >> "$GITHUB_OUTPUT"
-          echo "checksum=dist/${CHECKSUM}" >> "$GITHUB_OUTPUT"
+          echo "archive=${ARCHIVE}" >> "$GITHUB_OUTPUT"
+          echo "checksum=${CHECKSUM}" >> "$GITHUB_OUTPUT"
+
+          echo "archive_path=dist/${ARCHIVE}" >> "$GITHUB_OUTPUT"
+          echo "checksum_path=dist/${CHECKSUM}" >> "$GITHUB_OUTPUT"
 
       - name: Upload CI Artifact
         if: github.ref_type != 'tag'
@@ -124,8 +127,8 @@ jobs:
         with:
           name: ${{ steps.package.outputs.archive }}
           path: |
-            ${{ steps.package.outputs.archive }}
-            ${{ steps.package.outputs.checksum }}
+            ${{ steps.package.outputs.archive_path }}
+            ${{ steps.package.outputs.checksum_path }}
           if-no-files-found: error
           retention-days: 7
 
@@ -135,5 +138,5 @@ jobs:
         with:
           fail_on_unmatched_files: true
           files: |
-            ${{ steps.package.outputs.archive }}
-            ${{ steps.package.outputs.checksum }}
+            ${{ steps.package.outputs.archive_path }}
+            ${{ steps.package.outputs.checksum_path }}
