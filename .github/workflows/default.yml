@@ -119,7 +119,7 @@ jobs:
           echo "archive=${ARCHIVE}" >> "$GITHUB_OUTPUT"
           echo "checksum=${CHECKSUM}" >> "$GITHUB_OUTPUT"
 
-          echo "target_path=dist/${BINARY}${EXTENSION}" >> "$GITHUB_OUTPUT"
+          echo "target_path=dist/${PACKAGE}/${BINARY}${EXTENSION}" >> "$GITHUB_OUTPUT"
           echo "archive_path=dist/${ARCHIVE}" >> "$GITHUB_OUTPUT"
           echo "checksum_path=dist/${CHECKSUM}" >> "$GITHUB_OUTPUT"
 
