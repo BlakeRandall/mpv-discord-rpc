@@ -128,9 +128,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           archive: false
-          name: ${{ steps.package.outputs.target }}
-          path: |
-            ${{ steps.package.outputs.target_path }}
+          path: ${{ steps.package.outputs.target_path }}
           if-no-files-found: error
           retention-days: 7
 
