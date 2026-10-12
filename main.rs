@@ -28,7 +28,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 
 const DISCORD_APP_ID: &str = env!("DISCORD_APP_ID");
-const MPV_SOCKET: &str = "mpvsocket";
+const MPV_SOCKET: &str = env!("MPV_SOCKET");
 
 fn connect_to_mpv() -> Result<Stream, Box<dyn Error>> {
     let socket = std::env::var("MPV_SOCKET")
@@ -152,7 +152,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 eprintln!("Failed to clear activity: {error}");
             }
 
-            thread::sleep(Duration::from_millis(500));
+            thread::sleep(Duration::from_seconds(1));
             continue;
         }
 
@@ -218,7 +218,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             eprintln!("Failed to update Discord activity: {error}");
         }
 
-        thread::sleep(Duration::from_millis(500));
+        thread::sleep(Duration::from_seconds(1));
     }
 
     println!("Cleaning up Discord Rich Presence...");

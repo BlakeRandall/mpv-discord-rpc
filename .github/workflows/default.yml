@@ -31,6 +31,7 @@ jobs:
       - name: Rust Tests
         env:
           DISCORD_APP_ID: ${{ secrets.DISCORD_APP_ID }}
+          MPV_SOCKET: ${{ vars.MPV_SOCKET }}
         run: cargo test --locked
 
   release:
@@ -91,6 +92,7 @@ jobs:
       - name: Build Rust Binary
         env:
           DISCORD_APP_ID: ${{ secrets.DISCORD_APP_ID }}
+          MPV_SOCKET: ${{ vars.MPV_SOCKET }}
         run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Package Binary
