@@ -1,11 +1,9 @@
+mod arr;
 mod parent_watch;
 
 use single_instance::SingleInstance;
 
-use interprocess::local_socket::{
-    prelude::*,
-    Stream,
-};
+use interprocess::local_socket::{prelude::*, Stream};
 
 #[cfg(target_os = "windows")]
 use interprocess::local_socket::GenericNamespaced;
@@ -17,18 +15,32 @@ use serde_json::{json, Value};
 
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
 
+use log::{debug, error, info, warn};
+
 use std::error::Error;
 use std::io::{BufRead, BufReader, Write};
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::{
-    Arc,
     atomic::{AtomicBool, Ordering},
+    Arc,
 };
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-
 const DISCORD_APP_ID: &str = env!("DISCORD_APP_ID");
 const MPV_SOCKET: &str = env!("MPV_SOCKET");
+
+fn load_env() -> Option<PathBuf> {
+    if let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
+        let path = dir.join(".env");
+        if dotenvy::from_path(&path).is_ok() {
+            return Some(path);
+        }
+    }
+
+    dotenvy::dotenv().ok()
+}
 
 fn connect_to_mpv() -> Result<Stream, Box<dyn Error>> {
     let socket = std::env::var("MPV_SOCKET")
@@ -78,124 +90,116 @@ fn get_property(property: &str) -> Result<Value, Box<dyn Error>> {
     let response: Value = serde_json::from_str(&response)?;
 
     if response["error"] != "success" {
-        return Err(format!(
-            "mpv returned an error: {}",
-            response["error"]
-        ).into());
+        return Err(format!("mpv returned an error: {}", response["error"]).into());
     }
 
     Ok(response["data"].clone())
 }
 
+fn build_lines(media_title: &str, known: Option<arr::Lookup>, paused: bool) -> (String, String) {
+    let (details, label) = match known {
+        Some(l) => (l.details, l.state),
+        None => (media_title.to_string(), None),
+    };
+
+    let state = match (label, paused) {
+        (Some(l), true) => format!("{l} (paused)"),
+        (Some(l), false) => l,
+        (None, true) => "Paused".to_string(),
+        (None, false) => "Playing".to_string(),
+    };
+
+    (details, state)
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
+    let env_path = load_env();
+
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
+    match &env_path {
+        Some(path) => info!("Loaded settings from {}", path.display()),
+        None => warn!("No .env file found; using environment variables only."),
+    }
+
     let instance = SingleInstance::new("mpv-discord-rich-presence")?;
 
     if !instance.is_single() {
-        println!("Rich Presence is already running. Exiting.");
+        info!("Rich Presence is already running. Exiting.");
         return Ok(());
     }
-
-    // Load environment variables from .env if present.
-    dotenvy::dotenv().ok();
 
     let app_id = std::env::var("DISCORD_APP_ID")
         .ok()
         .filter(|id| !id.trim().is_empty())
         .unwrap_or_else(|| DISCORD_APP_ID.to_string());
 
-    // Shared shutdown flag.
+    let mut arr = arr::Arr::from_env();
+
     let running = Arc::new(AtomicBool::new(true));
     let shutdown_flag = Arc::clone(&running);
 
     ctrlc::set_handler(move || {
-        println!("\nCtrl+C received. Shutting down...");
+        info!("Ctrl+C received. Shutting down...");
         shutdown_flag.store(false, Ordering::SeqCst);
     })?;
 
     parent_watch::exit_when_parent_exits(Arc::clone(&running));
 
-    // Connect to Discord.
     let mut client = DiscordIpcClient::new(&app_id);
     client.connect()?;
 
-    println!("Rich Presence active. Press Ctrl+C to exit.");
+    info!("Rich Presence active. Press Ctrl+C to exit.");
+
+    let mut last_shown: Option<(String, String)> = None;
 
     while running.load(Ordering::SeqCst) {
-        let media = get_property("media-title")
-            .ok()
-            .and_then(|v| v.as_str().map(str::to_owned));
-
-        let position = get_property("playback-time")
-            .ok()
-            .and_then(|v| v.as_f64());
-
-        let paused = get_property("pause")
-            .ok()
-            .and_then(|v| v.as_bool());
-
-        let duration = get_property("duration")
-            .ok()
-            .and_then(|v| v.as_f64());
-
+        let media = get_property("media-title").ok().and_then(|v| v.as_str().map(str::to_owned));
+        let position = get_property("playback-time").ok().and_then(|v| v.as_f64());
+        let paused = get_property("pause").ok().and_then(|v| v.as_bool());
+        let duration = get_property("duration").ok().and_then(|v| v.as_f64());
         let idle = get_property("idle-active")
             .ok()
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
 
-        let idle = idle
-            || media.is_none()
-            || position.is_none()
-            || paused.is_none();
-
-        if idle {
-            if let Err(error) = client.clear_activity() {
-                eprintln!("Failed to clear activity: {error}");
+        let (Some(media), Some(position), Some(paused), false) = (media, position, paused, idle)
+        else {
+            if last_shown.take().is_some() {
+                info!("Playback stopped or mpv closed. Clearing presence.");
             }
-
+            if let Err(error) = client.clear_activity() {
+                warn!("Failed to clear activity: {error}");
+            }
             thread::sleep(Duration::from_secs(1));
             continue;
+        };
+
+        let path = get_property("path")
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_owned))
+            .unwrap_or_default();
+
+        let full_path = if path.is_empty() || path.contains("://") || Path::new(&path).is_absolute()
+        {
+            path
+        } else {
+            let cwd = get_property("working-directory")
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_owned))
+                .unwrap_or_default();
+            format!("{cwd}/{path}")
+        };
+
+        let (details, state) = build_lines(&media, arr.lookup(&full_path), paused);
+
+        debug!("path={full_path:?} media-title={media:?} -> details={details:?} state={state:?}");
+
+        let shown = (details.clone(), state.clone());
+        if last_shown.as_ref() != Some(&shown) {
+            info!("Now showing: {details} | {state}");
+            last_shown = Some(shown);
         }
-
-        let (details, state, timestamps) =
-            match (media, position, paused, duration) {
-                (Some(title), Some(position), Some(paused), Some(duration))
-                    if duration > 0.0 =>
-                {
-                    let state = if paused {
-                        "Paused"
-                    } else {
-                        "Playing"
-                    };
-
-                    let now = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)?
-                        .as_secs() as i64;
-
-                    // Calculate the start and end timestamps.
-                    let start = now - position as i64;
-                    let end = start + duration as i64;
-
-                    (
-                        title,
-                        state,
-                        Some(activity::Timestamps::new()
-                            .start(start)
-                            .end(end)),
-                    )
-                }
-
-                (Some(title), Some(_), Some(paused), _) => {
-                    let state = if paused { "Paused" } else { "Playing" };
-
-                    (title, state, None)
-                }
-
-                _ => (
-                    "Waiting for mpv...".to_string(),
-                    "Waiting for mpv...",
-                    None,
-                ),
-            };
 
         let assets = activity::Assets::new()
             .large_image("static")
@@ -206,32 +210,37 @@ fn main() -> Result<(), Box<dyn Error>> {
             .status_display_type(activity::StatusDisplayType::Name)
             .assets(assets)
             .details(&details)
-            .state(state)
+            .state(&state)
             .name("mpv");
 
-        if let Some(timestamps) = timestamps {
-            presence = presence.timestamps(timestamps);
+        if let Some(duration) = duration.filter(|d| *d > 0.0) {
+            let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64;
+            let start = now - position as i64;
+            presence = presence.timestamps(
+                activity::Timestamps::new()
+                    .start(start)
+                    .end(start + duration as i64),
+            );
         }
 
-        // Refresh every iteration so timestamps stay synchronized.
         if let Err(error) = client.set_activity(presence) {
-            eprintln!("Failed to update Discord activity: {error}");
+            error!("Failed to update Discord activity: {error}");
         }
 
         thread::sleep(Duration::from_secs(1));
     }
 
-    println!("Cleaning up Discord Rich Presence...");
+    info!("Cleaning up Discord Rich Presence...");
 
     if let Err(error) = client.clear_activity() {
-        eprintln!("Failed to clear activity: {error}");
+        warn!("Failed to clear activity: {error}");
     }
 
     if let Err(error) = client.close() {
-        eprintln!("Failed to close Discord RPC: {error}");
+        warn!("Failed to close Discord RPC: {error}");
     }
 
-    println!("Shutdown complete.");
+    info!("Shutdown complete.");
 
     Ok(())
 }

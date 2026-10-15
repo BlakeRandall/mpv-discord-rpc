@@ -25,12 +25,11 @@ pub fn exit_when_parent_exits(running: Arc<AtomicBool>) {
 
         let current_pid = GetCurrentProcessId();
 
-        // Find our parent PID from the process snapshot.
         let snapshot =
             CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
 
         if snapshot == INVALID_HANDLE_VALUE {
-            eprintln!("Could not create process snapshot");
+            log::error!("Could not create process snapshot");
             std::process::exit(1);
         }
 
@@ -56,23 +55,23 @@ pub fn exit_when_parent_exits(running: Arc<AtomicBool>) {
         CloseHandle(snapshot);
 
         let Some(parent_pid) = parent_pid else {
-            eprintln!("Could not determine parent PID");
+            log::error!("Could not determine parent PID");
             std::process::exit(1);
         };
 
-        // Open a synchronization handle to the parent.
         let handle = OpenProcess(PROCESS_SYNCHRONIZE, 0, parent_pid);
 
         if handle.is_null() {
-            eprintln!("Could not open parent process");
+            log::error!("Could not open parent process");
             std::process::exit(1);
         }
 
-        // Block this thread until the parent exits.
+        log::debug!("Watching parent process {parent_pid}");
+
         WaitForSingleObject(handle, INFINITE);
         CloseHandle(handle);
 
-        // Stop the RPC app when mpv exits.
+        log::info!("Parent process exited.");
         running.store(false, Ordering::SeqCst);
     });
 }
@@ -80,15 +79,13 @@ pub fn exit_when_parent_exits(running: Arc<AtomicBool>) {
 #[cfg(target_os = "linux")]
 pub fn exit_when_parent_exits(running: Arc<AtomicBool>) {
     unsafe {
-        // Capture the parent before configuring the death signal.
         let parent_before = libc::getppid();
 
         if parent_before <= 1 {
-            eprintln!("No valid parent process found");
+            log::error!("No valid parent process found");
             std::process::exit(1);
         }
 
-        // Ask the kernel to send SIGTERM when our parent dies.
         let result = libc::prctl(
             libc::PR_SET_PDEATHSIG,
             libc::SIGTERM,
@@ -98,12 +95,12 @@ pub fn exit_when_parent_exits(running: Arc<AtomicBool>) {
         );
 
         if result != 0 {
-            eprintln!("Failed to set parent-death signal");
+            log::error!("Failed to set parent-death signal");
             std::process::exit(1);
         }
 
-        // Detect a parent exit that raced with prctl().
         if libc::getppid() != parent_before {
+            log::info!("Parent process already exited.");
             running.store(false, Ordering::SeqCst);
         }
     }
@@ -111,5 +108,4 @@ pub fn exit_when_parent_exits(running: Arc<AtomicBool>) {
 
 #[cfg(not(any(windows, target_os = "linux")))]
 pub fn exit_when_parent_exits(running: Arc<AtomicBool>) {
-    // No parent monitoring implementation for other platforms.
 }
