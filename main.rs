@@ -1,5 +1,8 @@
-mod arr;
 mod parent_watch;
+mod discord;
+mod arr;
+
+use discord::Discord;
 
 use single_instance::SingleInstance;
 
@@ -13,9 +16,9 @@ use interprocess::local_socket::GenericFilePath;
 
 use serde_json::{json, Value};
 
-use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
+use discord_rich_presence::activity;
 
-use log::{debug, error, info, warn};
+use log::{debug, info, warn};
 
 use std::error::Error;
 use std::io::{BufRead, BufReader, Write};
@@ -146,14 +149,17 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     parent_watch::exit_when_parent_exits(Arc::clone(&running));
 
-    let mut client = DiscordIpcClient::new(&app_id);
-    client.connect()?;
+    let mut discord = Discord::new(app_id);
 
-    info!("Rich Presence active. Press Ctrl+C to exit.");
+    info!("Rich Presence started. Press Ctrl+C to exit.");
 
     let mut last_shown: Option<(String, String)> = None;
 
     while running.load(Ordering::SeqCst) {
+        if discord.connected() {
+            last_shown = None;
+        }
+
         let media = get_property("media-title").ok().and_then(|v| v.as_str().map(str::to_owned));
         let position = get_property("playback-time").ok().and_then(|v| v.as_f64());
         let paused = get_property("pause").ok().and_then(|v| v.as_bool());
@@ -168,9 +174,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             if last_shown.take().is_some() {
                 info!("Playback stopped or mpv closed. Clearing presence.");
             }
-            if let Err(error) = client.clear_activity() {
-                warn!("Failed to clear activity: {error}");
-            }
+            discord.clear_activity();
             thread::sleep(Duration::from_secs(1));
             continue;
         };
@@ -213,8 +217,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             .state(&state)
             .name("mpv");
 
-        if let Some(duration) = duration.filter(|d| *d > 0.0) {
-            let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64;
+        if let Some(duration) = duration.filter(|d| !paused && *d > 0.0) {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
             let start = now - position as i64;
             presence = presence.timestamps(
                 activity::Timestamps::new()
@@ -223,22 +230,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             );
         }
 
-        if let Err(error) = client.set_activity(presence) {
-            error!("Failed to update Discord activity: {error}");
-        }
+        discord.set_activity(presence);
 
         thread::sleep(Duration::from_secs(1));
     }
 
     info!("Cleaning up Discord Rich Presence...");
 
-    if let Err(error) = client.clear_activity() {
-        warn!("Failed to clear activity: {error}");
-    }
-
-    if let Err(error) = client.close() {
-        warn!("Failed to close Discord RPC: {error}");
-    }
+    discord.shutdown();
 
     info!("Shutdown complete.");
 
